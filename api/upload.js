@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
   try {
     const blob = await put('dashboard-data.json', JSON.stringify(data), {
-      access: 'private',
+      access: 'public',
       addRandomSuffix: false,
       contentType: 'application/json'
     });

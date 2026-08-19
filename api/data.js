@@ -6,12 +6,7 @@ export default async function handler(req, res) {
   try {
     const { blobs } = await list({ prefix: 'dashboard-data', limit: 1 });
     if (!blobs.length) return res.status(200).json({ url: null });
-
-    const r = await fetch(blobs[0].url, {
-      headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
-    });
-    const data = await r.json();
-    return res.status(200).json({ data });
+    return res.status(200).json({ url: blobs[0].url });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

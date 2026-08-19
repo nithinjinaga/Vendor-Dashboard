@@ -780,10 +780,14 @@ render();
 // Fetch persisted data from Vercel Blob on page load
 (async function bootFromBlob(){
   try {
-    const res = await fetch("/api/data");
-    if (!res.ok) return;
-    const {data} = await res.json();
-    if (data && data.rows) loadFromState(data);
+    const listRes = await fetch("/api/data");
+    if (!listRes.ok) return;
+    const {url} = await listRes.json();
+    if (!url) return;
+    const dataRes = await fetch(url);
+    if (!dataRes.ok) return;
+    const state = await dataRes.json();
+    if (state && state.rows) loadFromState(state);
   } catch(e){ /* no blob data yet — show empty state */ }
 })();
 
