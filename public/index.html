@@ -121,6 +121,9 @@ background:var(--card);color:var(--muted);cursor:pointer}
 .fg.row{flex-direction:row;align-items:center}
 .clr-btn{margin-left:16px;background:#e34948 !important;color:#fff !important;border-radius:6px !important;font-size:11px !important;padding:5px 12px !important}
 .clr-btn:hover{background:#c33 !important}
+#admin-btn{display:flex;align-items:center;background:none;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--tx)}
+#admin-btn:hover{background:var(--card)}
+#admin-btn.unlocked{border-color:var(--brand)}
 .hint{align-self:flex-end;font-size:11px;line-height:1.5;color:var(--muted);padding-bottom:3px}
 .hint a{color:var(--brand);font-weight:600;cursor:pointer;text-decoration:underline}
 .msg{border-radius:var(--r);padding:11px 16px;margin-bottom:16px;font-size:13px}
@@ -191,8 +194,11 @@ tbody tr:hover{background:#f8f9fb}
       </div>
     </div>
     <div class="hact">
-      <label class="drop" id="drop"><input type="file" id="file" accept=".xlsx,.xls,.xlsm" hidden>Drop Excel here or click to browse</label>
-      <button id="clear" type="button">Clear</button>
+      <div id="admin-zone" hidden>
+        <label class="drop" id="drop"><input type="file" id="file" accept=".xlsx,.xls,.xlsm" hidden>Drop Excel here or click to browse</label>
+        <button id="clear" type="button">Clear</button>
+      </div>
+      <button id="admin-btn" type="button" title="Admin login"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/></svg></button>
     </div>
   </div>
   <div class="filters" id="filters"></div>
@@ -206,7 +212,7 @@ tbody tr:hover{background:#f8f9fb}
 
 <script id="app">
 "use strict";
-const LS = "vendorTrackerData", LSU = "vendorTrackerUnit";
+const LSU = "vendorTrackerUnit";
 
 // Report failures on the page. A throw inside render() used to leave blank cards and total
 // silence, which is indistinguishable from "no data yet" - and undebuggable without the console.
@@ -671,12 +677,21 @@ function renderDups(){
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 /* ---------- load ---------- */
+let adminMode = false, adminPass = null;
+
 function load(buf, name){
   const p = parseWorkbook(XLSX.read(buf, {type:"array"}));
   S = Object.assign(p, {file:name, ts:Date.now()});
   filters = {}; sort = {col:null, dir:1}; openPop = null;
   Object.values(charts).forEach(c => c.destroy()); charts = {};
-  try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e){ /* over quota — session only */ }
+  $("err").hidden = true;
+  render();
+}
+
+function loadFromState(state){
+  S = state;
+  filters = {}; sort = {col:null, dir:1}; openPop = null;
+  Object.values(charts).forEach(c => c.destroy()); charts = {};
   $("err").hidden = true;
   render();
 }
@@ -685,8 +700,10 @@ function onFile(f){
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
-    // Parse failure must not wipe the dataset already on screen.
-    try { load(new Uint8Array(fr.result), f.name); }
+    try {
+      load(new Uint8Array(fr.result), f.name);
+      if (adminMode && adminPass) uploadToServer(S);
+    }
     catch(e){ $("err").hidden = false; $("err").textContent = "Could not read " + f.name + " - " + e.message; }
   };
   fr.onerror = () => { $("err").hidden = false; $("err").textContent = "Could not read " + f.name; };
@@ -699,10 +716,47 @@ const dz = $("drop");
 ["dragleave","drop"].forEach(t => dz.addEventListener(t, e => { e.preventDefault(); dz.classList.remove("over"); }));
 dz.addEventListener("drop", e => onFile(e.dataTransfer.files[0]));
 $("clear").onclick = () => {
-  localStorage.removeItem(LS);
   Object.values(charts).forEach(c => c.destroy()); charts = {};
   S = null; filters = {}; openPop = null; $("err").hidden = true; render();
 };
+
+const IC_USER = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/></svg>`;
+const IC_OK = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/><path d="M15 19l2 2l4 -4"/></svg>`;
+const IC_FAIL = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h3.5"/><path d="M16 19a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M17 21l4 -4"/></svg>`;
+
+$("admin-btn").onclick = () => {
+  if (adminMode) { adminMode = false; adminPass = null; $("admin-zone").hidden = true; $("admin-btn").innerHTML = IC_USER; $("admin-btn").classList.remove("unlocked"); return; }
+  const pw = prompt("Enter admin password:");
+  if (!pw) return;
+  adminPass = pw; adminMode = true;
+  $("admin-zone").hidden = false; $("admin-btn").innerHTML = IC_OK; $("admin-btn").classList.add("unlocked");
+};
+
+async function uploadToServer(state){
+  const dz = $("drop");
+  dz.textContent = "Uploading...";
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({password: adminPass, data: state})
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      if (res.status === 401) {
+        $("admin-btn").innerHTML = IC_FAIL;
+        setTimeout(() => { $("admin-btn").innerHTML = IC_OK; }, 2000);
+      }
+      throw new Error(j.error || "Upload failed");
+    }
+    dz.innerHTML = `<input type="file" id="file" accept=".xlsx,.xls,.xlsm" hidden>✓ Uploaded — drop another or click to browse`;
+    $("file").onchange = e => onFile(e.target.files[0]);
+  } catch(e){
+    $("err").hidden = false; $("err").textContent = "Upload failed: " + e.message;
+    dz.innerHTML = `<input type="file" id="file" accept=".xlsx,.xls,.xlsm" hidden>Drop Excel here or click to browse`;
+    $("file").onchange = e => onFile(e.target.files[0]);
+  }
+}
 
 // Fail loudly. Without this, a library that didn't load leaves a dashboard with no charts and
 // no reason why - which is indistinguishable from "no data yet".
@@ -716,28 +770,22 @@ if (missing.length){
     `truncated or was re-saved in a different encoding. Ask for a fresh copy.`;
 }
 
-try { const raw = localStorage.getItem(LS); if (raw) S = JSON.parse(raw); } catch(e){ S = null; }
 try { if (localStorage.getItem(LSU) === "nos") unit = "nos"; } catch(e){ /* default MW */ }
 render();
 
-/* ---------- ?load=<file> : fetch a workbook sitting next to this page and show it ----------
-   The point is a URL that just shows the charts - no drag-and-drop, no localStorage.
-   Needs http:// (file:// gives every file its own opaque origin and blocks fetch). */
-const wanted = new URLSearchParams(location.search).get("load");
-if (wanted !== null) loadByUrl(wanted || "Dashboard 1 - DUMMY.xlsx");
-
-async function loadByUrl(name){
+// Fetch persisted data from Vercel Blob on page load
+(async function bootFromBlob(){
   try {
-    const res = await fetch(encodeURIComponent(name));
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching "${name}"`);
-    load(new Uint8Array(await res.arrayBuffer()), name);
-  } catch(e){
-    fatal(`Could not load "${name}".`, location.protocol === "file:"
-      ? "Opened from a file:// path, where the browser blocks reading sibling files. "
-        + "Serve the folder instead:  python -m http.server 8123"
-      : e.message);
-  }
-}
+    const listRes = await fetch("/api/data");
+    if (!listRes.ok) return;
+    const {url} = await listRes.json();
+    if (!url) return;
+    const dataRes = await fetch(url);
+    if (!dataRes.ok) return;
+    const state = await dataRes.json();
+    if (state && state.rows) loadFromState(state);
+  } catch(e){ /* no blob data yet — show empty state */ }
+})();
 
 /* ---------- localhost-only state report ----------
    Fires one GET whose query string lands in the local server's access log, so the actual rendered

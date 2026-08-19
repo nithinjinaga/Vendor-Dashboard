@@ -37,7 +37,7 @@ t("real: header row found by name, not index", () => assert.strictEqual(K.custom
 t("real: sheet located by scan", () => assert.strictEqual(P.sheet, "Sheet2"));
 t("real: 9 rows", () => assert.strictEqual(P.rows.length, 9));
 t("real: no duplicates in source", () => assert.strictEqual(P.dups.length, 0));
-t("real: 22 columns mapped", () => assert.strictEqual(P.cols.length, 22));
+t("real: 23 columns mapped", () => assert.strictEqual(P.cols.length, 23));
 t("real: Amara Raja PO Nos = 406505", () => assert.strictEqual(row("Amara")[K.poNos], 406505));
 t("real: Amara Raja PO MW ~ 250.000575", () => assert(Math.abs(row("Amara")[K.poMw] - 250.000575) < 1e-6));
 t("real: Amara Raja dispatched Nos = 228160", () => assert.strictEqual(row("Amara")[K.dispNos], 228160));
@@ -54,7 +54,7 @@ t("real: typo header 'BOE Acceptance Recevied' mapped", () => assert.strictEqual
 t("real: 'Amount Due ' trailing space mapped, label trimmed", () => assert.strictEqual(K.amtDue, "Amount Due"));
 t("real: 'Clearance Given to Store(Nos)' matched by rule", () =>
   assert.strictEqual(K.clrNos, "Clearance Given to Store(Nos)"));
-t("real: clearance MW column not present yet", () => assert(!K.clrMw));
+t("real: clearance MW column present", () => assert(K.clrMw));
 t("real: every known numeric column typed num", () => {
   const c = P.cols.find(x => x.label === "PO Quantity (Nos)");
   assert.strictEqual(c.type, "num"); assert.strictEqual(c.fmt, "int");
@@ -133,6 +133,47 @@ t("dup: repeated row hidden, 9 kept", () => {
 });
 t("dup: hidden row is the repeat", () => assert(String(D.dups[0][D.K.customer]).startsWith("Amara")));
 
+/* ---- 2b. new customer row with all columns filled ---- */
+const newRow = [
+  "Test Solar Corp", "TestLead", "TestSub", "550", "DCR",
+  50000, 30000, 20000, 5000, 2000, 1000,           // Nos: PO, Dispatch, Pending, Stock, MDCC, Clearance
+  30.5, 18.2, 12.3, 1.5, 3.0, 0.8,                 // MW:  PO, Dispatch, Pending, MDCC, Stock, Clearance
+  500000000, 200000000, 300000000,                   // Amount: Due, Received, Pending
+  400000000, 150000000, 250000000                    // BOE: Filed, Accepted, Pending
+];
+const addedAoa = base.concat([newRow]);
+const wbAdd = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wbAdd, XLSX.utils.aoa_to_sheet(addedAoa), "Sheet2");
+const A = read(XLSX.write(wbAdd, { type: "array", bookType: "xlsx" }));
+const arow = c => A.rows.find(r => String(r[A.K.customer]).startsWith(c));
+
+t("add: 10 rows after adding new customer", () => assert.strictEqual(A.rows.length, 10));
+t("add: no duplicates", () => assert.strictEqual(A.dups.length, 0));
+t("add: new customer found by name", () => assert(arow("Test Solar")));
+t("add: PO Nos populated", () => assert.strictEqual(arow("Test Solar")[A.K.poNos], 50000));
+t("add: PO MW populated", () => assert.strictEqual(arow("Test Solar")[A.K.poMw], 30.5));
+t("add: Amount Due populated", () => assert.strictEqual(arow("Test Solar")[A.K.amtDue], 500000000));
+t("add: Amount Received populated", () => assert.strictEqual(arow("Test Solar")[A.K.amtRecd], 200000000));
+t("add: BOE Filed populated", () => assert.strictEqual(arow("Test Solar")[A.K.boeFiled], 400000000));
+t("add: clearance Nos populated", () => assert.strictEqual(arow("Test Solar")[A.K.clrNos], 1000));
+t("add: clearance MW populated", () => assert.strictEqual(arow("Test Solar")[A.K.clrMw], 0.8));
+t("add: existing Amara row unchanged", () => assert.strictEqual(arow("Amara")[A.K.poNos], 406505));
+t("add: donut still drawable with new row", () => {
+  const totalA = (rs, key) => {
+    const v = rs.map(r => r[A.K[key]]).filter(x => typeof x === "number");
+    return v.length ? v.reduce((x, y) => x + y, 0) : null;
+  };
+  const d = donutParts(totalA(A.rows, "amtDue"),
+    [{ lab: "Received", v: totalA(A.rows, "amtRecd") }, { lab: "Pending", v: totalA(A.rows, "amtPend") }],
+    "Not yet recorded");
+  assert.strictEqual(d.bad, false);
+});
+t("add: collection % works for new row", () => {
+  const r = arow("Test Solar");
+  const pct = ratio(r[A.K.amtRecd], r[A.K.amtDue]);
+  assert.strictEqual(+(pct).toFixed(1), 40.0);
+});
+
 /* ---- 3. new columns adopted with no code change ---- */
 const aoa = [
   ["Customer Name", "Lead", "Sublead", "WP", "DCR/NDCR", "Freight Amount",
@@ -172,7 +213,26 @@ t("new: Clearance (Nos) matched by rule", () => assert.strictEqual(N.K.clrNos, "
 t("new: Clearance MW matched by rule", () => assert.strictEqual(N.K.clrMw, "Clearance to store MW"));
 t("new: every column reaches the table", () => assert.strictEqual(N.cols.length, aoa[0].length));
 
-/* ---- 4. bad input ---- */
+/* ---- 4. Excel errors and incomplete rows ---- */
+const aoaErr = [
+  ["Customer Name", "Lead", "PO Quantity (Nos)", "Amount Due"],
+  ["Alpha", "L1", 100, 5000],
+  ["Beta", "L1", "#REF!", null],
+  ["Gamma", "L2", 300, "#N/A"],
+  ["Delta", "L2", null, null]
+];
+const wbErr = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wbErr, XLSX.utils.aoa_to_sheet(aoaErr), "S1");
+const E = read(XLSX.write(wbErr, { type: "array", bookType: "xlsx" }));
+t("err: #REF! becomes null", () => assert.strictEqual(E.rows[1][E.K.poNos], null));
+t("err: #N/A becomes null", () => assert.strictEqual(E.rows[2][E.K.amtDue], null));
+t("err: row with empty cells still kept", () => assert.strictEqual(E.rows.length, 4));
+t("err: one numeric value keeps column as num", () => {
+  const c = E.cols.find(x => x.label === "PO Quantity (Nos)");
+  assert.strictEqual(c.type, "num");
+});
+
+/* ---- 5. bad input ---- */
 const wbBad = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wbBad, XLSX.utils.aoa_to_sheet([["Foo", "Bar"], [1, 2]]), "Nope");
 t("bad: sheet without Customer Name throws a clear error", () => {
