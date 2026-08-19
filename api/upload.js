@@ -13,7 +13,8 @@ export default async function handler(req, res) {
     const blob = await put('dashboard-data.json', JSON.stringify(data), {
       access: 'public',
       addRandomSuffix: false,
-      contentType: 'application/json'
+      contentType: 'application/json',
+      token: process.env.BLOB_READ_WRITE_TOKEN
     });
     return res.status(200).json({ ok: true, url: blob.url });
   } catch (e) {
