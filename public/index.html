@@ -724,12 +724,16 @@ const IC_USER = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" 
 const IC_OK = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/><path d="M15 19l2 2l4 -4"/></svg>`;
 const IC_FAIL = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h3.5"/><path d="M16 19a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M17 21l4 -4"/></svg>`;
 
-$("admin-btn").onclick = () => {
+$("admin-btn").onclick = async () => {
   if (adminMode) { adminMode = false; adminPass = null; $("admin-zone").hidden = true; $("admin-btn").innerHTML = IC_USER; $("admin-btn").classList.remove("unlocked"); return; }
   const pw = prompt("Enter admin password:");
   if (!pw) return;
-  adminPass = pw; adminMode = true;
-  $("admin-zone").hidden = false; $("admin-btn").innerHTML = IC_OK; $("admin-btn").classList.add("unlocked");
+  try {
+    const res = await fetch("/api/verify", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({password: pw}) });
+    if (!res.ok) { $("admin-btn").innerHTML = IC_FAIL; setTimeout(() => { $("admin-btn").innerHTML = IC_USER; }, 2000); return; }
+    adminPass = pw; adminMode = true;
+    $("admin-zone").hidden = false; $("admin-btn").innerHTML = IC_OK; $("admin-btn").classList.add("unlocked");
+  } catch(e) { $("admin-btn").innerHTML = IC_FAIL; setTimeout(() => { $("admin-btn").innerHTML = IC_USER; }, 2000); }
 };
 
 async function uploadToServer(state){
